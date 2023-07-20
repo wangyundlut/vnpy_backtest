@@ -6,7 +6,7 @@ from time import perf_counter
 from multiprocessing import Manager, Pool, get_context
 from _collections_abc import dict_keys, dict_values, Iterable
 
-from tqdm import tqdm
+# from tqdm import tqdm
 from deap import creator, base, tools, algorithms
 
 

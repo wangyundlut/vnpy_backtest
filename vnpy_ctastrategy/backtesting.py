@@ -4,6 +4,8 @@ from typing import Callable, List, Dict, Optional, Type
 from functools import lru_cache, partial
 import traceback
 
+import csv
+
 import numpy as np
 from pandas import DataFrame, Series
 import plotly.graph_objects as go
@@ -773,20 +775,24 @@ class BacktestingEngine:
         """"""
         self.callback = callback
 
-        init_end = self.start - INTERVAL_DELTA_MAP[interval]
-        init_start = self.start - timedelta(days=days)
-
-        symbol, exchange = extract_vt_symbol(vt_symbol)
-
-        bars: List[BarData] = load_bar_data(
-            symbol,
-            exchange,
-            interval,
-            init_start,
-            init_end
-        )
-
+        # 如果是回测模式，直接返回历史数据
+        bars = self.history_data[0:days]
         return bars
+
+        # init_end = self.start - INTERVAL_DELTA_MAP[interval]
+        # init_start = self.start - timedelta(days=days)
+
+        # symbol, exchange = extract_vt_symbol(vt_symbol)
+
+        # bars: List[BarData] = load_bar_data(
+        #     symbol,
+        #     exchange,
+        #     interval,
+        #     init_start,
+        #     init_end
+        # )
+
+        # return bars
 
     def load_tick(self, vt_symbol: str, days: int, callback: Callable) -> List[TickData]:
         """"""
@@ -1060,7 +1066,22 @@ class DailyResult:
         self.net_pnl = self.total_pnl - self.commission - self.slippage
 
 
-@lru_cache(maxsize=999)
+# @lru_cache(maxsize=999)
+# def load_bar_data(
+#     symbol: str,
+#     exchange: Exchange,
+#     interval: Interval,
+#     start: datetime,
+#     end: datetime
+# ) -> List[BarData]:
+#     """"""
+#     database: BaseDatabase = get_database()
+
+#     return database.load_bar_data(
+#         symbol, exchange, interval, start, end
+#     )
+
+@lru_cache(maxsize=10000000)
 def load_bar_data(
     symbol: str,
     exchange: Exchange,
@@ -1069,11 +1090,28 @@ def load_bar_data(
     end: datetime
 ) -> List[BarData]:
     """"""
-    database: BaseDatabase = get_database()
-
-    return database.load_bar_data(
-        symbol, exchange, interval, start, end
-    )
+    reader = open(f'/Repositories/vnpy_backtest/data/{interval.value}/{symbol}.csv', 'r')
+    #  去掉头
+    reader.readline()
+    data = []
+    # 循环读取
+    for line in reader.readlines():
+        bar_data = BarData(
+            gateway_name='',
+            symbol=symbol,
+            exchange=exchange,
+            datetime=datetime.strptime(line.split(',')[0], '%Y-%m-%d %H:%M:%S.%f %z'),
+            
+            interval=interval,
+            volume=float(line.split(',')[6]),
+            turnover=float(line.split(',')[7]),
+            open_price=float(line.split(',')[2]),
+            high_price=float(line.split(',')[3]),
+            low_price=float(line.split(',')[4]),
+            close_price=float(line.split(',')[5]),
+        )
+        data.append(bar_data)
+    return data
 
 
 @lru_cache(maxsize=999)
