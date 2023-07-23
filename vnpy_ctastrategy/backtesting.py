@@ -7,9 +7,15 @@ import traceback
 import csv
 
 import numpy as np
+import pandas as pd
 from pandas import DataFrame, Series
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from pyecharts.charts import Line, Bar, Grid, Page, Kline, EffectScatter
+from pyecharts import options as opts
+from pyecharts.components import Table
+from pyecharts.options import ComponentTitleOpts
+from pyecharts.globals import ThemeType
 
 from vnpy.trader.constant import (
     Direction,
@@ -193,6 +199,7 @@ class BacktestingEngine:
                     start,
                     end
                 )
+                # print(f"load_bar_data: {len(data)}")
             else:
                 data: List[TickData] = load_tick_data(
                     self.symbol,
@@ -202,6 +209,7 @@ class BacktestingEngine:
                 )
 
             self.history_data.extend(data)
+            # print(f"history data len : {len(self.history_data)}")
 
             progress += progress_days / total_days
             progress = min(progress, 1)
@@ -517,6 +525,217 @@ class BacktestingEngine:
         fig.update_layout(height=1000, width=1000)
         fig.show()
 
+    def save_echarts(self, df: DataFrame = None, filepath: str = "result.html") -> None:
+        
+        # Check DataFrame input exterior
+        if df is None:
+            if self.daily_df.empty:
+                self.calculate_result()
+            df: DataFrame = self.daily_df
+
+        # Check for init DataFrame
+        if df is None:
+            return        
+       
+        # Create statistics table for result
+        statistics: dict = self.calculate_statistics(df, output=False)
+        
+        table = Table()
+        # 将结果以每行的形式展示，不需要header
+        headers = ['index', 'value']
+
+        # 将结果存入一个列表中
+        rows = []
+        for key, value in statistics.items():
+            rows.append([key, value])
+
+        table.add(headers, rows)
+
+        table.width = '30%'
+        table.pos_left = '3%'
+        table.pos_right = '65%'
+        table.height = '100%'
+
+        # Assuming df is the pandas DataFrame containing your data
+        # You can replace df with your actual DataFrame
+
+        # Create Line chart for Balance
+        line = Line(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
+        line.add_xaxis(df.index.to_list())
+        middle_y = 0.5 * (max(df["balance"].to_list()) + min(df["balance"].to_list()))
+        diff_y = 0.5 * (max(df["balance"].to_list()) - min(df["balance"].to_list()))
+        max_y = round(middle_y + 1.1 * diff_y)
+        min_y = round(middle_y - 1.1 * diff_y)
+
+        # 设置y轴的最大最小值 为 max(y) min(y)
+        line.add_yaxis("Balance", 
+                       y_axis=[round(x, 2) for x in df["balance"].to_list()], 
+                       is_smooth=True,)
+        line.set_global_opts(
+            yaxis_opts=opts.AxisOpts(
+                            min_=min_y,
+                            max_=max_y,), 
+            datazoom_opts=[opts.DataZoomOpts(
+                            is_show=True,
+                            type_="slider",
+                            range_start=0,
+                            range_end=100,
+                            xaxis_index=0,
+                            orient="horizontal",),
+                            opts.DataZoomOpts(type_="inside"),
+            ]
+            )
+        line.width = '60%'
+        line.pos_left = '35%'
+        line.pos_right = '3%'
+        # line.height = 'auto'
+
+        # Create Line chart for Drawdown
+        line_drawdown = Line(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
+        line_drawdown.add_xaxis(df.index.to_list())
+        line_drawdown.add_yaxis(
+            "Drawdown", 
+            [round(x, 2) for x in df["drawdown"].to_list()], 
+            )
+        line_drawdown.set_series_opts(
+            areastyle_opts=opts.AreaStyleOpts(opacity=0.5),
+            label_opts=opts.LabelOpts(is_show=True),
+        )
+        line_drawdown.set_global_opts(
+            datazoom_opts=[opts.DataZoomOpts(
+                            is_show=True,
+                            type_="slider",
+                            range_start=0,
+                            range_end=100,
+                            xaxis_index=0,
+                            orient="horizontal",),
+                            opts.DataZoomOpts(type_="inside"),
+            ]
+        )
+        line_drawdown.width = '60%'
+        line_drawdown.pos_left = '35%'
+        line_drawdown.pos_right = '3%'
+        # line_drawdown.height = 'auto'
+
+        # Create Bar chart for Daily Pnl
+        bar = Bar(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
+        bar.add_xaxis(df.index.to_list())
+        net_pnl = df["net_pnl"].to_list()
+        net_pnl = [round(x, 2) for x in net_pnl]
+        bar.add_yaxis("Daily Pnl", net_pnl)
+        bar.set_global_opts(
+            datazoom_opts=[opts.DataZoomOpts(
+                            is_show=True,
+                            type_="slider",
+                            range_start=0,
+                            range_end=100,
+                            xaxis_index=0,
+                            orient="horizontal",),
+                            opts.DataZoomOpts(type_="inside"),
+            ]
+        )
+        bar.width = '60%'
+        bar.pos_left = '35%'
+        bar.pos_right = '3%'
+        # bar.height = 'auto'
+        
+
+        # Create Bar chart for Pnl Distribution (convert histogram to bar chart)
+        histogram = Bar(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
+        
+        bins = pd.cut(net_pnl, bins=100)
+
+        pnl_counts = bins.value_counts().tolist()
+        pnl_ranges = [f"{round(interval.left, 2)} - {round(interval.right, 2)}" for interval in bins.categories]
+        
+        histogram.add_xaxis(pnl_ranges)
+        histogram.add_yaxis(
+            "Days", 
+            pnl_counts, 
+            label_opts=opts.LabelOpts(is_show=False))
+        histogram.set_global_opts(
+            datazoom_opts=[opts.DataZoomOpts(
+                            is_show=True,
+                            type_="slider",
+                            range_start=0,
+                            range_end=100,
+                            xaxis_index=0,
+                            orient="horizontal",),
+                            opts.DataZoomOpts(type_="inside"),
+            ]
+        )
+        histogram.width = '60%'
+        histogram.pos_left = '35%'
+        histogram.pos_right = '3%'
+        # histogram.height = 'auto'
+
+        kline = Kline(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
+        x_data = [x.datetime.strftime('%Y-%m-%d %H:%M:%S') for x in self.history_data]
+        
+        open_price = [x.open_price for x in self.history_data]
+        close_price = [x.close_price for x in self.history_data]
+        low_price = [x.low_price for x in self.history_data]
+        high_price = [x.high_price for x in self.history_data]
+        y_data = [list(x) for x in zip(open_price, close_price, low_price, high_price)]
+        kline.add_xaxis(x_data)
+        kline.add_yaxis("Kline", y_data)
+        kline.set_global_opts(
+            datazoom_opts=[opts.DataZoomOpts(
+                            is_show=True,
+                            type_="slider",
+                            range_start=0,
+                            range_end=100,
+                            xaxis_index=0,
+                            orient="horizontal",),
+                            opts.DataZoomOpts(type_="inside"),
+            ]
+        )
+        kline.width = '60%'
+        kline.pos_left = '35%'
+        kline.pos_right = '3%'
+        # kline.height = 'auto'
+        
+        
+        # 创建一个空字典用于存储交易数据
+        trade_dict = {}
+
+        # 遍历所有交易数据，将每个交易时间和方向及开盘价存储到trade_dict中
+        all_trades = self.get_all_trades()
+        for trade in all_trades:
+            trade_dict[trade.datetime] = {"direction": trade.direction, "price": trade.price}
+
+        # 初始化y_short_data和y_long_data
+        y_short_data = []
+        y_long_data = []
+
+        # 遍历历史数据，根据trade_dict中的数据填充y_short_data和y_long_data
+        for his_data in self.history_data:
+            trade_data = trade_dict.get(his_data.datetime)
+            if trade_data is not None:
+                if trade_data["direction"] == Direction.LONG:
+                    y_long_data.append(trade_data["price"])
+                    y_short_data.append(None)
+                else:
+                    y_long_data.append(None)
+                    y_short_data.append(trade_data["price"])
+            else:
+                y_long_data.append(None)
+                y_short_data.append(None)
+
+        effect_scatter = EffectScatter()
+        effect_scatter.add_xaxis(x_data)
+        effect_scatter.add_yaxis("Long", y_long_data, symbol="triangle", itemstyle_opts=opts.ItemStyleOpts(color="red"),)
+        effect_scatter.add_yaxis("Short", y_short_data, symbol="diamond", itemstyle_opts=opts.ItemStyleOpts(color="green"),)
+        kline.overlap(effect_scatter)
+        
+        page = Page(layout=Page.SimplePageLayout)
+
+        page.add(table, line, line_drawdown, bar, histogram, kline)
+        page.render(filepath)
+        print(f"Result saved to {filepath}")
+
+        
+
     def run_bf_optimization(
         self,
         optimization_setting: OptimizationSetting,
@@ -775,7 +994,7 @@ class BacktestingEngine:
         """"""
         self.callback = callback
 
-        # 如果是回测模式，直接返回历史数据
+        # 如果是回测模式，直接返回历史数据,days 代表的是K线的数量，不是实际的days的意思
         bars = self.history_data[0:days]
         return bars
 
@@ -1096,21 +1315,25 @@ def load_bar_data(
     data = []
     # 循环读取
     for line in reader.readlines():
-        bar_data = BarData(
-            gateway_name='',
-            symbol=symbol,
-            exchange=exchange,
-            datetime=datetime.strptime(line.split(',')[0], '%Y-%m-%d %H:%M:%S.%f %z'),
-            
-            interval=interval,
-            volume=float(line.split(',')[6]),
-            turnover=float(line.split(',')[7]),
-            open_price=float(line.split(',')[2]),
-            high_price=float(line.split(',')[3]),
-            low_price=float(line.split(',')[4]),
-            close_price=float(line.split(',')[5]),
-        )
-        data.append(bar_data)
+        
+        dt = datetime.strptime(line.split(',')[0], '%Y-%m-%d %H:%M:%S')
+        dt = dt.replace(tzinfo=None)
+        if dt >= start and dt < end:
+            bar_data = BarData(
+                gateway_name='',
+                symbol=symbol,
+                exchange=exchange,
+                datetime=dt,
+                
+                interval=interval,
+                volume=float(line.split(',')[6]),
+                turnover=float(line.split(',')[7]),
+                open_price=float(line.split(',')[2]),
+                high_price=float(line.split(',')[3]),
+                low_price=float(line.split(',')[4]),
+                close_price=float(line.split(',')[5]),
+            )
+            data.append(bar_data)
     return data
 
 

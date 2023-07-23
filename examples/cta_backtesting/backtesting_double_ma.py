@@ -11,9 +11,9 @@ from datetime import datetime
 engine = BacktestingEngine()
 engine.set_parameters(
     vt_symbol="1INCHUSDT.BINANCE",
-    interval="d",
-    start=datetime(2020, 12, 25),
-    end=datetime(2023, 6, 20),
+    interval="1m",
+    start=datetime(2023, 1, 1),
+    end=datetime(2023, 1, 5),
     rate=0.3/10000,
     slippage=0.2,
     size=300,
@@ -26,7 +26,8 @@ engine.load_data()
 engine.run_backtesting()
 df = engine.calculate_result()
 engine.calculate_statistics()
-engine.show_chart()
+# engine.show_chart()
+engine.save_echarts()
 
 setting = OptimizationSetting()
 setting.set_target("sharpe_ratio")
